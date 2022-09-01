@@ -6,6 +6,12 @@ See STIFMap methods section for in-depth explanation of AutoAFM principles
 Contact Connor Stashko (cstashko@hmc.edu) for questions
 
 AutoAFM Pipeline:  
+ 
+   
+    
+     
+       
+       
                                             1. Thaw slide on hand and wash away OCT in PBS for 5 min  
     2. Probe PA gels of known stiffness as a baseline  
     3. Load tissue sample with approx. 250 uL of PBS + propidium iodide + CNA35   
