@@ -1,0 +1,203 @@
+
+macro "get_coordinates" {
+	getSelectionCoordinates(xpoints, ypoints);
+	Array.print(xpoints);
+	Array.print(ypoints);
+}
+
+macro "get_coordinates2" {
+	waitForUser("Specify the path using the 'segmented line' tool");
+	run("Interpolate", "interval=1");
+	getSelectionCoordinates(xpoints, ypoints);
+
+	// Ask the user for the step size and let them continue choosing until it looks good
+	step_confirmed = 0;
+	while (step_confirmed == 0) {
+		step = getNumber("Choose a step size?", 50);
+		// Create new arrays that are subsets of the original arrays
+		array_length = floor(xpoints.length/step)+1;
+		j = 0;
+		xarr = newArray(array_length);
+		yarr = newArray(array_length);
+
+		for (i = 0; i < xpoints.length; i=i+step) {
+			xarr[j] = xpoints[i];
+			yarr[j] = ypoints[i];
+			j = j+1;
+		}
+		makeSelection("point", xarr, yarr);
+		step_confirmed = getBoolean("Does this look good?");	
+
+	}
+
+	// Finally, write the list of points out
+	f = File.open("C:/Users/cstashko/Desktop/AFM_expt_temp/points.txt");
+	for (i=0; i<xpoints.length; i=i+step) {
+		print(f, xpoints[i] + " "+ ypoints[i]);
+	}
+	File.close(f);
+}
+
+
+macro "main" {
+
+	File.makeDirectory("C:/Users/cstashko/Desktop/AFM_expt_temp/");
+	File.makeDirectory("C:/Users/cstashko/Desktop/AFM_expt_temp/in");
+	File.makeDirectory("C:/Users/cstashko/Desktop/AFM_expt_temp/out");
+	File.makeDirectory("C:/Users/cstashko/Desktop/AFM_expt_temp/pics");
+
+	counter = 0;
+
+	// get the coordinates of the tip
+	waitForUser("Specify the tip location");
+	getSelectionCoordinates(x0,y0);
+	setKeyDown("alt");
+	makePoint(x0[0], y0[0]);
+	setKeyDown("none");
+	f = File.open("C:/Users/cstashko/Desktop/AFM_expt_temp/tip_location.txt");
+	print(f, (x0[0])+" "+(y0[0]));
+	File.close(f);
+	
+	while (1) {
+		
+		breaker = 0;
+
+		// draw the desired path
+		run("get_coordinates2");
+		waitForUser("Switch back to the Propidium Iodide channel");
+
+		// Put the tip location back on
+		makePoint(x0[0], y0[0]);
+
+		
+		// take pic on signal
+		dir = 'C:/Users/cstashko/Desktop/AFM_expt_temp/out/';
+		files_list = getFileList(dir);
+		length_prev = files_list.length;
+		length_next = length_prev;
+
+
+		saveAs("tiff", "C:/Users/cstashko/Desktop/AFM_expt_temp/pics/pic_"+counter+".tiff");
+
+		while (1){
+	
+			// Wait for the directory to be updated with the latest forcePlot
+			while (length_prev == length_next) {
+				files_list = getFileList(dir);
+				length_next = files_list.length;
+				counter++;
+				// Wait at the end by the acquisition time to make sure that the picture updates before taking a snap
+				wait(500);
+
+				// Check if we have finished the current path. If we have, Python will delete the points.txt file		
+				if (!File.exists("C:/Users/cstashko/Desktop/AFM_expt_temp/points.txt")) {
+					breaker = 1;
+					break;
+				}
+			}
+
+			length_prev = length_next;
+			if (breaker == 1) {
+				break;
+			}
+			saveAs("tiff", "C:/Users/cstashko/Desktop/AFM_expt_temp/pics/pic_"+counter+".tiff");
+		}
+
+		another_trace = getBoolean("Trace completed. Do another?");
+		if (!another_trace) {
+			// Take a pic of the final position
+			print('still testing');
+			saveAs("tiff", "C:/Users/cstashko/Desktop/AFM_expt_temp/pics/pic_"+counter+".tiff");
+			run("moveSaveFiles");
+			break;
+		}
+	}
+}
+
+macro "main_multipoint" {
+
+	File.makeDirectory("C:/Users/cstashko/Desktop/AFM_expt_temp/");
+	File.makeDirectory("C:/Users/cstashko/Desktop/AFM_expt_temp/in");
+	File.makeDirectory("C:/Users/cstashko/Desktop/AFM_expt_temp/out");
+	File.makeDirectory("C:/Users/cstashko/Desktop/AFM_expt_temp/pics");
+
+	counter = 0;
+
+	// get the coordinates of the tip
+	waitForUser("Specify the tip location");
+	getSelectionCoordinates(x0,y0);
+	setKeyDown("alt");
+	makePoint(x0[0], y0[0]);
+	setKeyDown("none");
+	f = File.open("C:/Users/cstashko/Desktop/AFM_expt_temp/tip_location.txt");
+	print(f, (x0[0])+" "+(y0[0]));
+	File.close(f);
+	
+	while (1) {
+		
+		breaker = 0;
+
+		// draw the desired path
+		run("get_coordinates");
+		waitForUser("Switch back to the Propidium Iodide channel");
+
+		// Put the tip location back on
+		makePoint(x0[0], y0[0]);
+
+		
+		// take pic on signal
+		dir = 'C:/Users/cstashko/Desktop/AFM_expt_temp/out/';
+		files_list = getFileList(dir);
+		length_prev = files_list.length;
+		length_next = length_prev;
+
+
+		saveAs("tiff", "C:/Users/cstashko/Desktop/AFM_expt_temp/pics/pic_"+counter+".tiff");
+
+		while (1){
+	
+			// Wait for the directory to be updated with the latest forcePlot
+			while (length_prev == length_next) {
+				files_list = getFileList(dir);
+				length_next = files_list.length;
+				counter++;
+				// Wait at the end by the acquisition time to make sure that the picture updates before taking a snap
+				wait(500);
+
+				// Check if we have finished the current path. If we have, Python will delete the points.txt file		
+				if (!File.exists("C:/Users/cstashko/Desktop/AFM_expt_temp/points.txt")) {
+					breaker = 1;
+					break;
+				}
+			}
+
+			length_prev = length_next;
+			if (breaker == 1) {
+				break;
+			}
+			saveAs("tiff", "C:/Users/cstashko/Desktop/AFM_expt_temp/pics/pic_"+counter+".tiff");
+		}
+
+		another_trace = getBoolean("Trace completed. Do another?");
+		if (!another_trace) {
+			// Take a pic of the final position
+			print('still testing');
+			saveAs("tiff", "C:/Users/cstashko/Desktop/AFM_expt_temp/pics/pic_"+counter+".tiff");
+			run("moveSaveFiles");
+			break;
+		}
+	}
+}
+
+
+
+macro "moveSaveFiles" {
+	t = 'hi';
+	print(t+'hey');
+	save_direc = getDirectory("Choose a save directory");
+	print(save_direc);
+	save_name = getString("Save name?", "afm_expt");
+	print(save_direc+save_name);
+	File.rename("C:/Users/cstashko/Desktop/AFM_expt_temp/",save_direc+save_name+"/")
+}
+

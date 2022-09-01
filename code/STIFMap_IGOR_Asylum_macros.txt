@@ -1,0 +1,442 @@
+#Ifdef ARrtGlobals
+#pragma rtGlobals=1        // Use modern global access method.
+#else
+#pragma rtGlobals=3        // Use strict wave reference mode
+#endif 
+#include ":AsylumResearch:Code3D:Initialization"
+
+
+//	Watch Folder Background Task
+//	The Watch Folder background task watches a specified folder for new files with a specified extension.
+//	When new file is detected, the ProcessFile function is called and the file is moved to a "Done" folder.
+//
+//	To try it:
+//		Create a folder on disk to be your input folder.
+//		Create a folder on disk to be your done folder.
+//		Click the Select Input Folder button in the panel and choose your input folder.
+//		Click the Select Done Folder button in the panel and choose your done folder.
+//		Drag or save a .txt file in the input folder. The Watch Folder background task will
+//		print some information about it in the history and them move it to the done folder.
+//
+//	To customize:
+//		Possibly change kExtensionStr to the file extension of your choice.
+//		Possibly change kBackgroundTaskPeriod to the period of your choice. Start with a longer period before trying short periods.
+//		Modify the ProcessFile function to do whatever you want to do with each file.
+
+static Constant kBackgroundTaskPeriod = 60		// In "ticks" which are 1/60th of a second.
+static StrConstant kInputPathName = "WatchFolderInputPath"
+static StrConstant kDonePathName = "WatchFolderDonePath"
+static StrConstant kExtensionStr = ".txt"
+
+// This is an example to be replaced with your own function.
+static Function ProcessFile(pathName, fileName)	// This is an example to be replaced with your own function.
+	String pathName
+	String fileName
+	
+	GetFileFolderInfo /P=$pathName /Q fileName
+	
+	String modDateStr = Secs2Date(V_modificationDate, -2) + " " + Secs2Time(V_modificationDate, 1)
+	Variable poke = DemoReadThisLine2()
+	Printf "File: \"%s\", mod date: %s\r", fileName, modDateStr 
+	return poke
+End
+
+static Function MoveFileToDoneFolder(pathName, fileName, poke)
+	String pathName
+	String fileName
+	Variable poke
+	String destPathStr
+	
+	PathInfo $kDonePathName
+	String folderPath = S_path
+	destPathStr = folderPath + fileName
+	
+	// HR, 110216, 6.22B01: Make sure that the file name is not already in use.
+	GetFileFolderInfo /Q /Z destPathStr
+	if (V_Flag == 0)
+		Variable destFileUniquifier	// In a real application, this should be stored in a global variable so we don't have to start the search from 1 each time.
+		for (destFileUniquifier=1; destFileUniquifier<100000; destFileUniquifier+=1)
+			String proposedFileName
+			sprintf proposedFileName, "%d-%s", destFileUniquifier, fileName	// e.g., "1-MyFile.txt"
+			destPathStr = folderPath + proposedFileName
+			GetFileFolderInfo /Q /Z destPathStr
+			if (V_flag != 0)
+				break			// Found available name
+			endif
+		endfor
+	endif
+	
+	// If it's a poke, then delete the file. Otherwise, move it into the out folder
+	if (poke == 0)
+		MoveFile /P=$pathName /O /Z fileName as destPathStr
+	else
+		DeleteFile /P=$pathName /Z fileName
+	endif 
+	
+	if (V_flag != 0)
+		Printf "WatchFolder background task error while moving \"%s\" to 'Done' folder.\r" ,fileName
+		return -1
+	endif
+	
+	return 0
+End
+
+static Function FileIsReadyToBeProcessed(pathName, fileName)
+	String pathName
+	String fileName
+
+	Variable refNum = 0
+	Open /A /P=$pathName refNum as fileName
+	if (refNum != 0)			// File successfully opened?
+		Close refNum
+		return 1
+	endif
+	
+	return 0
+End
+
+static Function DoWatchFolder()
+	String fileList = IndexedFile($kInputPathName, -1, kExtensionStr)
+	
+	Variable numItems = ItemsInList(fileList)
+	Variable fileIndex
+	for(fileIndex=0; fileIndex<numItems; fileIndex+=1)
+		String fileName = StringFromList(fileIndex, fileList)
+		if (FileIsReadyToBeProcessed(kInputPathName, fileName))		// Ensures that the file is closed before processing it to avoid processing while the other program is still writing it.
+			Variable poke = ProcessFile(kInputPathName, fileName)	
+			MoveFileToDoneFolder(kInputPathName, fileName, poke)			// HR, 110216, 6.22B01: Moved this inside if statement
+		endif
+	endfor
+End
+
+Function WatchFolderBackgroundTask(s)
+	STRUCT WMBackgroundStruct &s
+	
+	String message
+
+	PathInfo $kInputPathName
+	if (V_flag == 0)
+		sprintf message, "The symbolic path '%s' does not exist. The WatchFolder background task is aborting.", kInputPathName
+		DoAlert 0, message
+		return 1
+	endif
+	String inputPath = S_path		// Full path to input folder
+
+	PathInfo $kDonePathName
+	if (V_flag == 0)
+		sprintf message, "The symbolic path '%s' does not exist. The WatchFolder background task is aborting.", kDonePathName
+		DoAlert 0, message
+		return 1
+	endif
+	String donePath = S_path		// Full path to done folder
+	
+	if (CmpStr(inputPath,donePath) == 0)
+		message = "The input path and the done path must be distinct. The WatchFolder background task is aborting."
+		DoAlert 0, message
+		return 1
+	endif
+	
+	DoWatchFolder()
+	
+	return 0
+End
+
+Function WFSelectInputFolderProc(ba) : ButtonControl
+	STRUCT WMButtonAction &ba
+
+	switch( ba.eventCode )
+		case 2: // mouse up
+			NewPath/O /M="Select input folder for WatchFolder background task to watch." $kInputPathName
+			break
+	endswitch
+
+	return 0
+End
+
+Function WFSelectDoneFolderProc(ba) : ButtonControl
+	STRUCT WMButtonAction &ba
+
+	switch( ba.eventCode )
+		case 2: // mouse up
+			NewPath/O /M="Select \"done\" folder for WatchFolder background task to put processed files." $kDonePathName
+			break
+	endswitch
+
+	return 0
+End
+
+Function ButtonProcStart(ctrlName) : ButtonControl
+	String ctrlName
+	
+	String startTitle = "Start Background Task"
+	String stopTitle = "Stop Background Task"
+	
+	CtrlNamedBackground WatchFolderTask, status
+	Variable isRunning = NumberByKey("RUN", S_info)
+	
+	if (isRunning)
+		CtrlNamedBackground WatchFolderTask, stop
+		Button $ctrlName, title=startTitle
+	else
+		CtrlNamedBackground WatchFolderTask, period=kBackgroundTaskPeriod, proc=WatchFolderBackgroundTask, dialogsOK=0
+		CtrlNamedBackground WatchFolderTask, start
+		Button $ctrlName, title=stopTitle
+	endif
+End
+
+Window ControlPanel() : Panel
+	PauseUpdate; Silent 1		// building window...
+	NewPanel /W=(91,69,357,281) as "Control"
+	ShowTools/A
+	Button StartStopButton,pos={43,115},size={180,20},proc=ButtonProcStart,title="Start Background Task"
+	Button StartStopButton,help={"Starts or stops the WatchFolder background task."}
+	Button SelectInputFolder,pos={42,15},size={182,20},proc=WFSelectInputFolderProc,title="Select Input Folder"
+	Button SelectInputFolder,help={"Sets the folder that the WatchFolder background task watches."}
+	Button SelectDoneFolder,pos={42,52},size={182,20},proc=WFSelectDoneFolderProc,title="Select Done Folder"
+	Button SelectDoneFolder,help={"Sets the folder to which the WatchFolder background task moves files that have been processed."}
+EndMacro
+
+Window WatchFolderPanel() : Panel
+	PauseUpdate; Silent 1		// building window...
+	NewPanel /W=(91,69,354,229) as "Watch Folder Control"
+	Button StartStopButton,pos={43,115},size={180,20},proc=ButtonProcStart,title="Start Background Task"
+	Button StartStopButton,help={"Starts or stops the WatchFolder background task."}
+	Button SelectInputFolder,pos={42,15},size={182,20},proc=WFSelectInputFolderProc,title="Select Input Folder"
+	Button SelectInputFolder,help={"Sets the folder that the WatchFolder background task watches."}
+	Button SelectDoneFolder,pos={42,52},size={182,20},proc=WFSelectDoneFolderProc,title="Select Done Folder"
+	Button SelectDoneFolder,help={"Sets the folder to which the WatchFolder background task moves files that have been processed."}
+EndMacro
+
+
+
+
+
+
+
+// ReadThisLine(pathName, filePath, whichLine, data)
+// Reads specified line number from file. Text is returned via data parameter.
+// pathName is the name of an Igor symbolic path (see "Symbolic Paths" help topic).
+// filePath is a file name, partial path or full path.
+// If filePath is a full path then pathName can be "".
+// The function result is 0 if the line was found, non-zero otherwise.
+// Because the data is returned through a pass-by-reference parameter,
+// this function can not be called from the command line. It must be
+// called from another function.
+// Example:
+//  String data
+//  Variable err = ReadThisLine("Igor", "License Agreement.txt", 2, data)
+//  Print data
+Function ReadThisLine(pathName, filePath, whichLine, data)
+    String pathName     // Name of Igor symbolic path
+    String filePath         // File name, partial path or full path
+    Variable whichLine      // 0-based line number
+    String& data            // Output
+   
+    data = ""
+   
+    Variable refNum
+
+    Open /R /P=$pathName refNum as filePath
+       
+    Variable lineNumber = 0
+    do
+        String tmpData
+        FReadLine refNum, tmpData
+        if (strlen(tmpData) == 0)
+            return -1           // Error - end of file
+        endif
+        if (lineNumber == whichLine)
+            data = tmpData
+            close refNum 	// I added this; close the file once you're done reading the line
+            return 0            // Success
+        endif
+        lineNumber += 1
+    while(1)
+End
+
+Function DemoReadThisLine()
+    String data
+    Variable err = ReadThisLine("Igor", "License Agreement.txt", 2, data)
+    Print err, data
+End
+
+Function DemoReadThisLine2()
+    // CallSetVarFunc(ForceSetvarFunc,"StartDistSetVar_2",-1,"","ForceVariablesWave[%StartDist][0]")	// reset the start dist all the way up	
+    String data
+    Variable err = ReadThisLine("WatchFolderInputPath", "test.txt", 0, data)
+    String poke, x_move, y_move, loop_num
+    // Added '.' in front as a wildcard character for the regex in case the number is negative
+    String expr = "([[:digit:]]+) (-?[[:digit:]]+) (-?[[:digit:]]+) ([[:digit:]]+)"
+    SplitString /E=(expr) data, poke, x_move, y_move, loop_num
+    Print err, data
+    Variable x_val = str2num(x_move)
+    Variable y_val = str2num(y_move)
+    Variable poke2 = str2num(poke)
+    Variable loop_num2 = str2num(loop_num)
+    print 1
+    print poke
+    print x_val
+    print y_val
+    print loop_num
+    print 2
+    if (poke2==1)
+    		print 3
+    		// PV("BaseSuffix",  loop_num2)
+    		movepoke(x_val/19, y_val/19)
+    else
+    		moveXwait(x_val/19)
+		moveYwait(y_val/19)   
+    endif
+
+    return poke2
+End
+
+
+
+
+//
+//
+//
+//
+//
+//
+// Running Motors
+//
+//
+//
+//
+//
+// Order of operations: (1) compile, (2) connect(), (3) manually reset, (4) initialize(), (5) movepoke(xdist, ydist), (6) manually reset, (7) initialize again, (8) movepoke
+// maybe just need to initialize twice or something to read the feedback coming from the motor before poking? Or using the readall function after initialize and before movepoke?
+
+// Test function to ensure that the procedure compiled
+Function helloWorld()
+	print "hello world"
+End
+
+// For some reason, the device must be reset after connect()-ing
+Function connect()
+	VDT2 /P=COM3 baud=256000,databits=8,parity=0,stopbits=1,in=1,out=1,echo=1
+	VDTOperationsPort2 COM3
+End
+
+// We want all movement commands to be in relative coordinates
+Function relpos()
+	VDTWrite2 "G91\r\n"
+End
+
+// Set the motors to relative coordinates and read the output from the reset
+Function initialize()
+	relpos()
+	readall()
+	readall()
+	readall()
+End
+
+// Move X
+Function moveX(dist)
+	variable dist
+	print dist
+	string command = "G0 X"+num2str(dist)+" F2000\r\n"
+	print command
+	VDTWrite2 command
+End
+
+// Move Y
+Function moveY(dist)
+	variable dist
+	print dist
+	string command = "G0 Y"+num2str(dist)+" F2000\r\n"
+	print command
+	VDTWrite2 command
+End
+
+// Wait for the arduino to not be busy; it should respond to the query once it's done moving
+// Note that you need to be sure no additional lines are coming back ('ok', etc.) before 'M114" is sent
+//	Otherwise, it'll simply read one line of whatever is next and then be done waiting
+Function wait()
+
+	VDTWrite2 "M114 \r\n"
+
+	String line
+	
+	do
+		VDTRead2 /O=2 /Q /T="\n" line
+		print line
+	while(stringmatch(line,"echo:busy: processing"))
+
+End
+
+// Read and print one line returning from the Arduino
+Function readone()
+	String line
+	VDTRead2 /O=1 /Q /T="\n" line
+	print line
+End
+
+// Read all responses coming back from the Arduino
+// Note the bug: After reset, there are two empty lines that are sent; it'll appear as though we've read everything, but really
+// 	we're getting stuck at those lines. The actual last line is 'echo: M301 P22.20 |1.08 D114.00
+//	Can fix this bug by doing readall() a few times after startup
+Function readall()
+	String line
+	do 
+		VDTRead2 /O=0.1 /Q /T="\n" line
+		print line
+	while(strlen(line)) != 0)
+End
+
+// The 'real' move-in-x function: Move in X, but make sure you're finished before moving onto the next command
+Function moveXwait(dist)
+	variable dist
+	
+	readall()
+	moveX(dist)
+	readone()
+	wait()
+End
+
+// The 'real' move-in-y function: Move in Y, but make sure you're finished before moving onto the next command
+Function moveYwait(dist)
+	variable dist
+	
+	readall()
+	moveY(dist)
+	readone()
+	wait()
+End
+
+// Move in X, then move in Y, then poke
+Function movepoke(xdist, ydist)
+	variable xdist
+	variable ydist
+	
+	moveXwait(xdist)
+	moveYwait(ydist)
+	DoForceFunc("SingleForce")
+	// CallSetVarFunc(ForceSetvarFunc,"StartDistSetVar_2",-1,"","ForceVariablesWave[%StartDist][0]")	// reset the start dist all the way up	
+End
+
+Function disconnect()
+	VDTOperationsPort2 None
+	VDTClosePort2 COM3
+End
+
+
+
+
+
+
+Function test1()	// This is an example to be replaced with your own function.
+	Variable poke = test2()
+	Printf "Testing" 
+	print poke
+	if (poke==5)
+    		print 3
+    	endif
+End
+
+Function test2()
+    Variable out = 5
+    return out
+End
