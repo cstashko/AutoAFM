@@ -1,5 +1,5 @@
 
-AutoAFM components, bill of materials, assembled view and pictures
+AutoAFM components, bill of materials, assembled view, and pictures
 
 See STIFMap methods section for in-depth explanation of AutoAFM principles
 
