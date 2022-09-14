@@ -3,7 +3,7 @@ AutoAFM components, bill of materials, assembled view, and pictures
 
 See STIFMap methods section for in-depth explanation of AutoAFM principles
 
-Contact Connor Stashko (cstashko@hmc.edu) for questions
+Contact Connor Stashko (cstashko@berkeley.edu) for questions
 
 AutoAFM Pipeline:  
  
